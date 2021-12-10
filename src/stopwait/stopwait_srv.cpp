@@ -34,7 +34,7 @@ void sw_closesrv() { close(srvsock); }
 
 static inline void send_ack() {
      //fill with data 
-    sndbuf = { .flag = F_ACK, .seq = 0, .dlen = 0, };
+    sndbuf.flag = F_ACK; sndbuf.seq = 0; sndbuf.dlen = 0;
     //check
     sndbuf.check = check();
 

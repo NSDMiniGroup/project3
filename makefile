@@ -14,7 +14,7 @@ SRVBINARY ?= $(BUILD_DIR)/server
 # Compilation flags
 CC = g++
 INCLUDES = $(addprefix -I, $(INC_DIR)) #-I是可以用相对路径的，只是不能识别`~`的路径
-CFLAGS += -Wall -Werror -ggdb3
+CFLAGS += -Wall -Werror -ggdb3 -std=c++11
 
 # Files to be compiled
 SRCS = $(shell find src/logsystem/ -name "*.cpp")

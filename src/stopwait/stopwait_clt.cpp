@@ -31,10 +31,8 @@ void sw_closeclt() { close(cltsock); }
 
 static inline void fill_data(int *state, const void* data, size_t len) {
     //fill with data 
-    sndbuf = { 
-        .flag = F_SEND,
-        .dlen = (uint16_t)len,
-    };
+    sndbuf.flag = F_SEND; sndbuf.dlen = (uint16_t)len;
+
     memcpy(sndbuf.data, data, len);
     if (*state == STATE_SEND0) {
         sndbuf.seq = FRAME0; 
