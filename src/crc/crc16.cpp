@@ -10,12 +10,12 @@
 uint16_t crc16(uint8_t *frame, size_t len, uint16_t tail) {
     uint16_t r = 0; //初始化为零，相当于给data前面补零，但并不会影响最终结果
     
-    for (int i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         r = ((r << 8) | frame[i]) ^ CRC16_Table[(r >> 8) & 0xff];
     }
     
     uint8_t *f = (uint8_t *)&tail;
-    for (int i = 0; i < sizeof(tail) / sizeof(uint8_t); i++) {
+    for (size_t i = 0; i < sizeof(tail) / sizeof(uint8_t); i++) {
         r = ((r << 8) | f[i])^ CRC16_Table[(r >> 8) & 0xff];
     }
     return r;

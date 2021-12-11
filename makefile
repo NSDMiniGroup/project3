@@ -17,12 +17,10 @@ INCLUDES = $(addprefix -I, $(INC_DIR)) #-I是可以用相对路径的，只是�
 CFLAGS += -Wall -Werror -ggdb3 -std=c++11
 
 # Files to be compiled
-SRCS = $(shell find src/logsystem/ -name "*.cpp")
+SRCS = $(shell find src/ -name "*.cpp" | egrep -v "(s.*r.*v)|(c.*l.*t)")
 CLTSRCS += $(SRCS) $(shell find src/client/ -name "*.cpp") \
-			$(shell find src/stopwait/ -name "*.cpp" | grep "c.*l.*t")
 
 SRVSRCS += $(SRCS) $(shell find src/server/ -name "*.cpp") \
-			$(shell find src/stopwait/ -name "*.cpp" | grep "s.*r.*v")
 
 
 # Rules
