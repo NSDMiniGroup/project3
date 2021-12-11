@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <crc/crc.h>
 
 // common
 static SWFrame sndbuf, rcvbuf;

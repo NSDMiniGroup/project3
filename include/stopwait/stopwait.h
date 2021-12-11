@@ -22,7 +22,7 @@ typedef struct sw_frame{
 	char data[MAX_FRAME_DATA];
 }SWFrame;
 
-enum { F_SEND, F_ACK, };
+enum { F_SEND, F_ACK, }; //enum is local, not global!
 enum { FRAME0, FRAME1, };
 
 #define SWHEADSIZE 4 
