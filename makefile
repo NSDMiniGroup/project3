@@ -2,6 +2,8 @@
 #TODO:
 #
 
+COMMENT ?= auto commit
+
 FILESTOTRACK += $(shell find . | egrep "\.h|\.cpp|\.c|README|makefile|Makefile")
 # GITFLAGS +=
 
@@ -45,5 +47,6 @@ clean:
 	-rm -rf $(BUILD_DIR)
 
 commit:
-	@git add -A $(FILESTOTRACK)
-	@echo "auto commit" | git commit -F - # -F indicate the commit message from a file, and `-` indicate from the standard input 
+	@git add $(FILESTOTRACK)
+	-@git status | grep "deleted" | sed 's/deleted://' | xargs git rm
+	@echo "$(COMMENT)" | git commit -F - # -F indicate the commit message from a file, and `-` indicate from the standard input 
