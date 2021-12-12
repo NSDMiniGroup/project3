@@ -9,23 +9,30 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <endian.h>
 
 // common
 #define TIMEOUT 5
+#define CRC_SIZE 2
 
-#define MAX_FRAME_DATA 128
-typedef struct sw_frame{
-	uint8_t   flag   : 2;
-	uint8_t   seq    : 2;
-	uint16_t  dlen   :12;
-	uint16_t  check  :16;
-	char data[MAX_FRAME_DATA];
-}SWFrame;
+typedef union sw_head {
+	struct {
+	#if BYTE_ORDER == BIG_ENDIAN 
+		uint8_t  flag : 4;
+		uint8_t  seq  : 4;
+	#endif
+	#if BYTE_ORDER == LITTLE_ENDIAN
+		uint8_t  seq  : 4;
+		uint8_t  flag : 4;
+	#endif
+		uint8_t dlen : 8;
+	} head;
+	uint16_t val;
+} SWHead; //the union can be used to implement align
+
 
 enum { F_SEND, F_ACK, }; //enum is local, not global!
 enum { FRAME0, FRAME1, };
-
-#define SWHEADSIZE 4 
 
 // sender
 enum { EVENT_TIMEOUT,  EVENT_ACK, };

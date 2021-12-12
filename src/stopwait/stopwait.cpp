@@ -5,8 +5,11 @@
 #include <crc/crc.h>
 
 // common
-static SWFrame sndbuf, rcvbuf;
-static int check() {
+#define MAX_FRAME_DATA 128
+static char sndbuf[2 * MAX_FRAME_DATA];
+static char rcvbuf[2 * MAX_FRAME_DATA];
+
+static uint16_t check() {
     //TODO
     return 0;
 }
@@ -32,28 +35,30 @@ void sw_closeclt() { close(cltsock); }
 
 static inline void fill_data(int *state, const void* data, size_t len) {
     //fill with data 
-    sndbuf.flag = F_SEND; sndbuf.dlen = (uint16_t)len;
+    ((SWHead *)sndbuf)->head.flag = F_SEND; 
+    ((SWHead *)sndbuf)->head.dlen = (uint8_t)len;
 
-    memcpy(sndbuf.data, data, len);
     if (*state == STATE_SEND0) {
-        sndbuf.seq = FRAME0; 
+        ((SWHead *)sndbuf)->head.seq = FRAME0; 
         *state = STATE_WAIT0; 
     }else {
-        sndbuf.seq = FRAME1; 
+        ((SWHead *)sndbuf)->head.seq = FRAME1; 
         *state = STATE_WAIT1;
     }
+
+    memcpy(sndbuf + sizeof(SWHead), data, len);
     //check
-    sndbuf.check = check();
+    uint16_t crc = htons(check()); 
+    memcpy(sndbuf + sizeof(SWHead) + len, &crc, CRC_SIZE);
 }
 
 static inline void send_data(size_t len) {
-    len += SWHEADSIZE;
+    len += sizeof(SWHead) + CRC_SIZE;
     //send data
 printf("send %lu bytes\n", len);
     ssize_t sndn = 0;
     while (len > 0) {
-        printf("snd_buf_size:%lu\n", sizeof(sndbuf));
-        assert( (sndn = send(cltsock, (char *)(&sndbuf) + sndn, len, 0)) != -1 );
+        assert( (sndn = send(cltsock, sndbuf + sndn, len, 0)) != -1 );
         len -= sndn;
     }
 }
@@ -75,12 +80,13 @@ static inline void recv_ack(int *state, size_t len) {
             event = EVENT_TIMEOUT;
         }else {
             if (FD_ISSET(cltsock, &readfds)) {
-                ssize_t rcvn = recv(cltsock, &rcvbuf, sizeof(rcvbuf), 0);
-                if (rcvn != sizeof(rcvbuf)) { 
-                    //handle the case of rcvn == sizeof(rcvbuf)
-                }
+                ssize_t rcvn __attribute__((unused)) = recv(cltsock, &rcvbuf, sizeof(rcvbuf), 0);
+                //handle the case of rcvn unexpected. 
+
                 //handle check
-                event = rcvbuf.flag == F_ACK ? EVENT_ACK : EVENT_TIMEOUT;
+
+                event = ((SWHead *)rcvbuf)->head.flag == F_ACK ? 
+                        EVENT_ACK : EVENT_TIMEOUT;
             }
         }
 
@@ -138,16 +144,19 @@ void sw_closesrv() { close(srvsock); }
 
 static inline void send_ack() {
      //fill with data 
-    sndbuf.flag = F_ACK; sndbuf.seq = 0; sndbuf.dlen = 0;
-    //check
-    sndbuf.check = check();
+    ((SWHead *)sndbuf)->head.flag = F_ACK; 
+    ((SWHead *)sndbuf)->head.seq = 0; 
+    ((SWHead *)sndbuf)->head.dlen = 0;
 
-    size_t len = SWHEADSIZE;
+    //check
+    uint16_t crc = htons(check());
+    memcpy(sndbuf + sizeof(SWHead), &crc, CRC_SIZE);
+
+    size_t len = sizeof(SWHead) + CRC_SIZE;
     //send data
     ssize_t sndn = 0;
     while (len > 0) {
-        assert( (sndn = send(peersock, (char *)(&sndbuf) + sndn, len, 0)) != -1 );
-        //应该把所有字段通过memcpy的方式放在一个buf里面？编译器可能会对结构体有不同的对齐方式（或者说额外的字节填充）。
+        assert( (sndn = send(peersock, sndbuf + sndn, len, 0)) != -1 );
         len -= sndn;
     }
 }
@@ -155,17 +164,19 @@ static inline void send_ack() {
 static inline void recv_data0(int *state, void *buf, size_t *len) {
     for( ; ; ) {
         ssize_t rcvn = recv(peersock, &rcvbuf, sizeof(rcvbuf), 0);
-        if (rcvn == 0) { *len = 0; return;}
+        if (rcvn == 0) { *len = 0; return; }
         perror("0");
-        //handle rcvn != sizeof(rcvbuf)
-        if (rcvn != sizeof(rcvbuf)) { }
+
         //handle check
-        if (rcvbuf.flag == F_SEND) {
-            int event = rcvbuf.seq == FRAME0 ? EVENT_FRAME0 : EVENT_FRAME1;
+
+        if (((SWHead *)rcvbuf)->head.flag == F_SEND) {
+            int event = ((SWHead *)rcvbuf)->head.seq == FRAME0 ? 
+                        EVENT_FRAME0 : EVENT_FRAME1;
             switch (event) {
                 case EVENT_FRAME0:
-                    *len = *len < rcvbuf.dlen ? *len : rcvbuf.dlen;
-                    memcpy(buf, rcvbuf.data, *len);
+                    *len = *len < ((SWHead *)rcvbuf)->head.dlen ? 
+                            *len : ((SWHead *)rcvbuf)->head.dlen;
+                    memcpy(buf, rcvbuf + sizeof(SWHead), *len);
                     send_ack();
                     *state = STATE_RECV1;
                     return;
@@ -182,15 +193,17 @@ static inline void recv_data1(int *state, void *buf, size_t *len) {
         ssize_t rcvn = recv(peersock, &rcvbuf, sizeof(rcvbuf), 0);
         perror("1");
         if (rcvn == 0) { *len = 0; return; }
-        //handle rcvn != sizeof(rcvbuf)
-        if (rcvn != sizeof(rcvbuf)) { }
+
         //handle check
-        if (rcvbuf.flag == F_SEND) {
-            int event = rcvbuf.seq == FRAME0 ? EVENT_FRAME0 : EVENT_FRAME1;
+
+        if (((SWHead *)rcvbuf)->head.flag == F_SEND) {
+            int event = ((SWHead *)rcvbuf)->head.seq == FRAME0 ? 
+                        EVENT_FRAME0 : EVENT_FRAME1;
             switch (event) {
                 case EVENT_FRAME1:
-                    *len = *len < rcvbuf.dlen ? *len : rcvbuf.dlen;
-                    memcpy(buf, rcvbuf.data, *len);
+                    *len = *len < ((SWHead *)rcvbuf)->head.dlen ? 
+                            *len : ((SWHead *)rcvbuf)->head.dlen;
+                    memcpy(buf, rcvbuf + sizeof(SWHead), *len);
                     send_ack();
                     *state = STATE_RECV0;
                     return;
