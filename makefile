@@ -45,5 +45,5 @@ clean:
 	-rm -rf $(BUILD_DIR)
 
 commit:
-	@git add $(FILESTOTRACK)
+	@git add -A $(FILESTOTRACK)
 	@echo "auto commit" | git commit -F - # -F indicate the commit message from a file, and `-` indicate from the standard input 
