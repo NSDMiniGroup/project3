@@ -6,13 +6,11 @@
 
 // common
 #define MAX_FRAME_DATA 128
-static char sndbuf[2 * MAX_FRAME_DATA];
-static char rcvbuf[2 * MAX_FRAME_DATA];
+static uint8_t sndbuf[2 * MAX_FRAME_DATA];
+static uint8_t rcvbuf[2 * MAX_FRAME_DATA];
 
-static uint16_t check() {
-    //TODO
-    return 0;
-}
+#define GEN 1
+#define CHECK 0
 
 // sender 
 static int cltsock;
@@ -48,8 +46,10 @@ static inline void fill_data(int *state, const void* data, size_t len) {
 
     memcpy(sndbuf + sizeof(SWHead), data, len);
     //check
-    uint16_t crc = htons(check()); 
-    memcpy(sndbuf + sizeof(SWHead) + len, &crc, CRC_SIZE);
+    size_t framelen = sizeof(SWHead) + len;
+    uint16_t crc = htons(crc16(sndbuf, framelen, GEN)); 
+printf("-->CRC=%d\n", crc);
+    memcpy(sndbuf + framelen, &crc, CRC_SIZE);
 }
 
 static inline void send_data(size_t len) {
@@ -84,6 +84,8 @@ static inline void recv_ack(int *state, size_t len) {
                 //handle the case of rcvn unexpected. 
 
                 //handle check
+                uint16_t r = crc16(rcvbuf, rcvn, CHECK);
+printf("r = %d\n", r);
 
                 event = ((SWHead *)rcvbuf)->head.flag == F_ACK ? 
                         EVENT_ACK : EVENT_TIMEOUT;
@@ -149,7 +151,8 @@ static inline void send_ack() {
     ((SWHead *)sndbuf)->head.dlen = 0;
 
     //check
-    uint16_t crc = htons(check());
+    uint16_t crc = htons(crc16(sndbuf, sizeof(SWHead), GEN));
+printf("-->CRC=%d\n", crc);
     memcpy(sndbuf + sizeof(SWHead), &crc, CRC_SIZE);
 
     size_t len = sizeof(SWHead) + CRC_SIZE;
@@ -168,6 +171,8 @@ static inline void recv_data0(int *state, void *buf, size_t *len) {
         perror("0");
 
         //handle check
+        uint16_t r = crc16(rcvbuf, rcvn, CHECK);
+printf("r = %d\n", r);
 
         if (((SWHead *)rcvbuf)->head.flag == F_SEND) {
             int event = ((SWHead *)rcvbuf)->head.seq == FRAME0 ? 
@@ -195,6 +200,8 @@ static inline void recv_data1(int *state, void *buf, size_t *len) {
         if (rcvn == 0) { *len = 0; return; }
 
         //handle check
+        uint16_t r = crc16(rcvbuf, rcvn, CHECK);
+printf("r = %d\n", r);
 
         if (((SWHead *)rcvbuf)->head.flag == F_SEND) {
             int event = ((SWHead *)rcvbuf)->head.seq == FRAME0 ? 

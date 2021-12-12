@@ -2,7 +2,7 @@
 #define __CRC_H__
 #include <stdint.h>
 #include <sys/types.h>
-  uint16_t crc16(uint8_t *frame, size_t len, uint16_t tail);
+  uint16_t crc16(uint8_t *frame, size_t len, int flag);
 #endif
 
 /*

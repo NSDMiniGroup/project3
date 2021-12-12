@@ -44,35 +44,39 @@ static const uint16_t CRC16_Table[256] = {
 };
 
 //正向(大端字节序)
-uint16_t crc16(uint8_t *frame, size_t len, uint16_t tail) {
+uint16_t crc16(uint8_t *frame, size_t len, int flag) {
+// flag == 1 ? gen : check
     uint16_t r = 0; //初始化为零，相当于给data前面补零，但并不会影响最终结果
     
     for (size_t i = 0; i < len; i++) {
         r = ((r << 8) | frame[i]) ^ CRC16_Table[(r >> 8) & 0xff];
     }
-    
-    uint8_t *f = (uint8_t *)&tail;
-    for (size_t i = 0; i < sizeof(tail) / sizeof(uint8_t); i++) {
-        r = ((r << 8) | f[i])^ CRC16_Table[(r >> 8) & 0xff];
+
+   if (flag == 1) {
+        for (size_t i = 0; i < 2; i++) {
+            //r = ((r << 8) | f[i])^ CRC16_Table[(r >> 8) & 0xff];
+            r = (r << 8) ^ CRC16_Table[(r >> 8) & 0xff];
+        }
     }
     return r;
 }//用于网络传输时，返回值需要作网络序转换
 
 /*tester
-uint8_t data_frame[1024];
+uint8_t data_frame[1024 + 2];
 int main() {
     srandom(time(0));
     int cnt = 10000;
     while (cnt--) {
         for (int i = 0; i < 1024; i++) data_frame[i] = (uint8_t)random();
-        uint16_t crc = crc16(data_frame, 1024, 0);
-        assert(crc16(data_frame, 1024, htons(crc)) == 0);
+        uint16_t crc = crc16(data_frame, 1024, 1);
+        *(uint16_t *)(&data_frame[1024]) = htons(crc);
+        assert(crc16(data_frame, 1026, 0) == 0);
 
-           int idex = (uint16_t)random() % 1024;
+           int idex = (uint16_t)random() % 1026;
            int val = (uint8_t)random();
            if (data_frame[idex] != val) {
                 data_frame[idex] = val;
-                assert(crc16(data_frame, 1024, htons(crc)) != 0);
+                assert(crc16(data_frame, 1026, 1) != 0);
            }
     }
     
