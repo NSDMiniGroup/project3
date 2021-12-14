@@ -1,6 +1,10 @@
 #鲁棒性-各种条件检查
-#TODO:
-#
+REMOVEFILES = $(shell git status | grep "deleted" | sed 's/deleted://')
+ifeq ($(REMOVEFILES),)
+  GITRM :=
+else
+  GITRM := git rm
+endif
 
 COMMENT ?= auto commit
 
@@ -48,5 +52,5 @@ clean:
 
 commit:
 	@git add $(FILESTOTRACK)
-	-@git status | grep "deleted" | sed 's/deleted://' | xargs git rm
+	-@$(GITRM) $(REMOVEFILES)
 	@echo "$(COMMENT)" | git commit -F - # -F indicate the commit message from a file, and `-` indicate from the standard input 
