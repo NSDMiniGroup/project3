@@ -71,6 +71,9 @@ static inline void recv_ack(int *state, size_t len) {
     fd_set readfds;
     
     int event;
+    int counter = 0; //record the dulplicate
+    uint8_t expected_seq = *state == STATE_WAIT0 ? ACK0 : ACK1; 
+
     while (1) {
         FD_ZERO(&readfds);
         FD_SET(cltsock, &readfds);
@@ -78,28 +81,44 @@ static inline void recv_ack(int *state, size_t len) {
         if (nfds < 0) perror("Error");
         if (nfds == 0) { //TIMEMOUT
             event = EVENT_TIMEOUT;
-        }else {
+        } else {
             if (FD_ISSET(cltsock, &readfds)) {
                 ssize_t rcvn __attribute__((unused)) = recv(cltsock, &rcvbuf, sizeof(rcvbuf), 0);
                 //handle the case of rcvn unexpected. 
 
                 //handle check
                 uint16_t r = crc16(rcvbuf, rcvn, CHECK);
-printf("r = %d\n", r);
-
-                event = ((SWHead *)rcvbuf)->head.flag == F_ACK ? 
-                        EVENT_ACK : EVENT_TIMEOUT;
+//printf("r = %d\n", r);
+                if (r == 0 && ((SWHead *)rcvbuf)->head.flag == F_ACK ) {
+                    event = ((SWHead *)rcvbuf)->head.seq == expected_seq ?
+                            EVENT_EXPACK : EVENT_UNEXPACK;
+                } else {
+                    event = EVENT_TIMEOUT;
+                    //if r != 0, there is a wrong in the frame, serve it as timeout
+                }
             }
         }
 
         switch (event) {
             case EVENT_TIMEOUT: 
                 send_data(len); 
-                printf("timeout...");
+                printf("timeout...\n");
                 timeout.tv_sec = TIMEOUT;
                 timeout.tv_usec = 0;
                 break;
-            case EVENT_ACK: 
+            case EVENT_UNEXPACK:
+                if (counter == MAXCNT) {
+                    printf("fast re-transition...\n");
+                    send_data(len); 
+                    timeout.tv_sec = TIMEOUT;
+                    timeout.tv_usec = 0;
+                    counter = 0;
+                } else {
+                    counter++;
+                }
+                break;
+            case EVENT_EXPACK: 
+printf("receive ack %d\n", expected_seq);
                 *state = *state == STATE_WAIT0 ? 
                         STATE_SEND1 : STATE_SEND0; 
                 return;
@@ -144,15 +163,15 @@ int sw_listen(uint32_t ipaddr, uint16_t port) {
 
 void sw_closesrv() { close(srvsock); }
 
-static inline void send_ack() {
+static inline void send_ack(char seq) {
      //fill with data 
     ((SWHead *)sndbuf)->head.flag = F_ACK; 
-    ((SWHead *)sndbuf)->head.seq = 0; 
+    ((SWHead *)sndbuf)->head.seq = seq; 
     ((SWHead *)sndbuf)->head.dlen = 0;
 
     //check
     uint16_t crc = htons(crc16(sndbuf, sizeof(SWHead), GEN));
-printf("-->CRC=%d\n", crc);
+//printf("-->CRC=%d\n", crc);
     memcpy(sndbuf + sizeof(SWHead), &crc, CRC_SIZE);
 
     size_t len = sizeof(SWHead) + CRC_SIZE;
@@ -168,11 +187,12 @@ static inline void recv_data0(int *state, void *buf, size_t *len) {
     for( ; ; ) {
         ssize_t rcvn = recv(peersock, &rcvbuf, sizeof(rcvbuf), 0);
         if (rcvn == 0) { *len = 0; return; }
-        perror("0");
+//       perror("0");
 
         //handle check
         uint16_t r = crc16(rcvbuf, rcvn, CHECK);
-printf("r = %d\n", r);
+        if (r != 0) continue; //there is a wrong in the frame, do nothing and wait untill the re-transition
+//printf("r = %d\n", r);
 
         if (((SWHead *)rcvbuf)->head.flag == F_SEND) {
             int event = ((SWHead *)rcvbuf)->head.seq == FRAME0 ? 
@@ -182,11 +202,11 @@ printf("r = %d\n", r);
                     *len = *len < ((SWHead *)rcvbuf)->head.dlen ? 
                             *len : ((SWHead *)rcvbuf)->head.dlen;
                     memcpy(buf, rcvbuf + sizeof(SWHead), *len);
-                    send_ack();
+                    send_ack(0);
                     *state = STATE_RECV1;
                     return;
                 case EVENT_FRAME1:
-                    send_ack(); break;
+                    send_ack(1); break;
                 default: assert(0);
             }
         }
@@ -196,12 +216,13 @@ printf("r = %d\n", r);
 static inline void recv_data1(int *state, void *buf, size_t *len) {
     for( ; ; ) {
         ssize_t rcvn = recv(peersock, &rcvbuf, sizeof(rcvbuf), 0);
-        perror("1");
+//       perror("1");
         if (rcvn == 0) { *len = 0; return; }
 
         //handle check
         uint16_t r = crc16(rcvbuf, rcvn, CHECK);
-printf("r = %d\n", r);
+        if (r != 0) continue; //there is a wrong in the frame, do nothing and wait untill the re-transition
+//printf("r = %d\n", r);
 
         if (((SWHead *)rcvbuf)->head.flag == F_SEND) {
             int event = ((SWHead *)rcvbuf)->head.seq == FRAME0 ? 
@@ -211,11 +232,11 @@ printf("r = %d\n", r);
                     *len = *len < ((SWHead *)rcvbuf)->head.dlen ? 
                             *len : ((SWHead *)rcvbuf)->head.dlen;
                     memcpy(buf, rcvbuf + sizeof(SWHead), *len);
-                    send_ack();
+                    send_ack(1);
                     *state = STATE_RECV0;
                     return;
                 case EVENT_FRAME0:
-                    send_ack(); break;
+                    send_ack(0); break;
                 default: assert(0);
             }
         }
@@ -226,7 +247,7 @@ ssize_t sw_recv(void* buf, size_t len){
 /*如果len < rcvbuf.dlen, 则(len, rcvbuf.dlen]的区间的数据会被丢弃，
 sw_recv不负责,invoker应该自己保证buf足够大*/
     static int state = STATE_RECV0;
-printf("%s\n", state ? "STATE_RECV1" : "STATE_RECV0");
+//printf("%s\n", state ? "STATE_RECV1" : "STATE_RECV0");
     switch (state) {     
         case STATE_RECV0: 
             recv_data0(&state, buf, &len); break;

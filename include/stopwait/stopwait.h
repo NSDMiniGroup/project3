@@ -33,10 +33,12 @@ typedef union sw_head {
 
 enum { F_SEND, F_ACK, }; //enum is local, not global!
 enum { FRAME0, FRAME1, };
+enum { ACK0, ACK1, };
 
 // sender
-enum { EVENT_TIMEOUT,  EVENT_ACK, };
+enum { EVENT_TIMEOUT,  EVENT_EXPACK, EVENT_UNEXPACK, };
 enum { STATE_SEND0, STATE_SEND1, STATE_WAIT0, STATE_WAIT1, };
+#define MAXCNT 3
 
 // receiver
 enum { EVENT_FRAME0, EVENT_FRAME1, };
