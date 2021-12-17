@@ -12,7 +12,7 @@
 #include <endian.h>
 
 // common
-#define TIMEOUT 5
+#define TIMEOUT 3
 #define CRC_SIZE 2
 #define ERROR_PRO 20 
 
@@ -39,12 +39,12 @@ enum { ACK0, ACK1, };
 // sender
 enum { EVENT_TIMEOUT,  EVENT_EXPACK, EVENT_UNEXPACK, };
 enum { STATE_SEND0, STATE_SEND1, STATE_WAIT0, STATE_WAIT1, };
-#define MAXCNT 3
+#define MAXCNT 3 
 
 // receiver
 enum { EVENT_FRAME0, EVENT_FRAME1, };
 enum { STATE_RECV0, STATE_RECV1, };
-#define DELAY 5
+#define DELAY 5 
 
 ssize_t sw_send(const void* data, size_t len);
 ssize_t sw_recv(void* buf, size_t len);

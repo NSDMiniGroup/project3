@@ -9,9 +9,11 @@
 
 // common
 #define MAX_FRAME_DATA 128
-static uint8_t sndbuf[2 * MAX_FRAME_DATA];
-static uint8_t rcvbuf[2 * MAX_FRAME_DATA];
-static uint8_t tmp_sndbuf[2 * MAX_FRAME_DATA];
+#define BUFSIZE  sizeof(SWHead) + MAX_FRAME_DATA + CRC_SIZE
+
+static uint8_t sndbuf[BUFSIZE];
+static uint8_t rcvbuf[BUFSIZE];
+static uint8_t tmp_sndbuf[BUFSIZE];
 
 #define GEN 1
 #define CHECK 0
@@ -75,15 +77,18 @@ static inline void fill_data(int *state, const void* data, size_t len) {
     }
 
     memcpy(sndbuf + sizeof(SWHead), data, len);
-    //check
+
+    //add the out-of-band data
     size_t framelen = sizeof(SWHead) + len;
-    uint16_t crc = htons(crc16(sndbuf, framelen, GEN)); 
+    memset(sndbuf + framelen, 0, BUFSIZE - CRC_SIZE - framelen);
+    //check
+    uint16_t crc = htons(crc16(sndbuf, BUFSIZE - CRC_SIZE, GEN)); 
 //printf("-->CRC=%d\n", crc);
-    memcpy(sndbuf + framelen, &crc, CRC_SIZE);
+    memcpy(sndbuf + BUFSIZE - CRC_SIZE, &crc, CRC_SIZE);
 }
 
 static inline void send_data(size_t len) {
-    len += sizeof(SWHead) + CRC_SIZE;
+    len = BUFSIZE;
     size_t tmplen = len;
 
     //error simulation
@@ -118,16 +123,17 @@ static inline void recv_ack(int *state, size_t len) {
             event = EVENT_TIMEOUT;
         } else {
             if (FD_ISSET(sock, &readfds)) {
-                ssize_t rcvn __attribute__((unused)) = recv(sock, &rcvbuf, sizeof(rcvbuf), 0);
+                ssize_t rcvn __attribute__((unused)) = recv(sock, &rcvbuf, BUFSIZE, 0);
                 //handle the case of rcvn unexpected. 
 
                 //handle check
-                uint16_t r = crc16(rcvbuf, rcvn, CHECK);
-printf("    r = %d\n", r);
+                uint16_t r = crc16(rcvbuf, BUFSIZE, CHECK);
                 if (r == 0 && ((SWHead *)rcvbuf)->head.flag == F_ACK ) {
                     event = ((SWHead *)rcvbuf)->head.seq == expected_seq ?
                             EVENT_EXPACK : EVENT_UNEXPACK;
+printf("    recv an ack, r = %d\n", r);
                 } else {
+printf("    recv error, r = %d\n", r);
                     event = EVENT_TIMEOUT;
                     //if r != 0, there is a wrong in the frame, serve it as timeout
                 }
@@ -150,6 +156,7 @@ printf("    r = %d\n", r);
                     counter = 0;
                 } else {
                     counter++;
+printf("couter:%d\n", counter);
                 }
                 break;
             case EVENT_EXPACK: 
@@ -198,18 +205,26 @@ int sw_listen(uint32_t ipaddr, uint16_t port) {
 
 void sw_closesrv() { close(srvsock); }
 
+static void delay() {
+    srandom(time(0));
+    unsigned int t = random() % (DELAY + 1);
+    sleep(t);
+}
+
 static inline void send_ack(char seq) {
      //fill with data 
     ((SWHead *)sndbuf)->head.flag = F_ACK; 
     ((SWHead *)sndbuf)->head.seq = seq; 
     ((SWHead *)sndbuf)->head.dlen = 0;
 
+    //fill the out-of-band data
+    memset(sndbuf + sizeof(SWHead), 0, BUFSIZE - sizeof(SWHead) - CRC_SIZE);
     //check
-    uint16_t crc = htons(crc16(sndbuf, sizeof(SWHead), GEN));
+    uint16_t crc = htons(crc16(sndbuf, BUFSIZE - CRC_SIZE, GEN));
 //printf("-->CRC=%d\n", crc);
-    memcpy(sndbuf + sizeof(SWHead), &crc, CRC_SIZE);
+    memcpy(sndbuf + BUFSIZE - CRC_SIZE, &crc, CRC_SIZE);
 
-    size_t len = sizeof(SWHead) + CRC_SIZE;
+    size_t len = BUFSIZE;
     size_t tmplen = len;
 
     //error simulation
@@ -226,18 +241,20 @@ printf("    send ack, %s\n", e == 0? "No error":"Has error");
 
 static inline void recv_data0(int *state, void *buf, size_t *len) {
     for( ; ; ) {
-        ssize_t rcvn = recv(sock, &rcvbuf, sizeof(rcvbuf), 0);
+        ssize_t rcvn = recv(sock, &rcvbuf, BUFSIZE, 0);
         if (rcvn == 0) {
             *len = 0; 
             close(sock);
             return; 
         }
+        delay(); //delay reception
+printf("    recv %ld\n", rcvn);
 //       perror("0");
 
         //handle check
-        uint16_t r = crc16(rcvbuf, rcvn, CHECK);
+        uint16_t r = crc16(rcvbuf, BUFSIZE, CHECK);
         if (r != 0) {
-printf("    r = %d\n", r);
+printf("    recv an error frame, r = %d\n", r);
             continue; //there is a wrong in the frame, do nothing and wait untill the re-transition
         }
 
@@ -262,7 +279,7 @@ printf("    r = %d\n", r);
 
 static inline void recv_data1(int *state, void *buf, size_t *len) {
     for( ; ; ) {
-        ssize_t rcvn = recv(sock, &rcvbuf, sizeof(rcvbuf), 0);
+        ssize_t rcvn = recv(sock, &rcvbuf, BUFSIZE, 0);
 //       perror("1");
         if (rcvn == 0) { 
             *len = 0; 
@@ -270,10 +287,12 @@ static inline void recv_data1(int *state, void *buf, size_t *len) {
             return; 
         }
 
+        delay(); //delay reception
+printf("    recv %ld\n", rcvn);
         //handle check
-        uint16_t r = crc16(rcvbuf, rcvn, CHECK);
+        uint16_t r = crc16(rcvbuf, BUFSIZE, CHECK);
         if (r != 0) {
-printf("    r = %d\n", r);
+printf("    recv an error frame, r = %d\n", r);
             continue; //there is a wrong in the frame, do nothing and wait untill the re-transition
         }
 
