@@ -12,6 +12,8 @@ static uint8_t rcvbuf[2 * MAX_FRAME_DATA];
 #define GEN 1
 #define CHECK 0
 
+static int sock; //used by sw_send and sw_recv
+
 // sender 
 static int cltsock;
 int sw_connect(uint32_t ipaddr, uint16_t port) {
@@ -25,6 +27,8 @@ int sw_connect(uint32_t ipaddr, uint16_t port) {
 
     assert( connect(cltsock, (sockaddr *)&srvaddr, sizeof(srvaddr)) != -1 );
     printf("connect %s : %d successfully!\n", inet_ntoa(srvaddr.sin_addr), port);
+
+    sock = cltsock;
 
     return 0;
 }
@@ -58,7 +62,7 @@ static inline void send_data(size_t len) {
 printf("send %lu bytes\n", len);
     ssize_t sndn = 0;
     while (len > 0) {
-        assert( (sndn = send(cltsock, sndbuf + sndn, len, 0)) != -1 );
+        assert( (sndn = send(sock, sndbuf + sndn, len, 0)) != -1 );
         len -= sndn;
     }
 }
@@ -76,14 +80,14 @@ static inline void recv_ack(int *state, size_t len) {
 
     while (1) {
         FD_ZERO(&readfds);
-        FD_SET(cltsock, &readfds);
+        FD_SET(sock, &readfds);
         int nfds = select(1024, &readfds, NULL, NULL, &timeout);
         if (nfds < 0) perror("Error");
         if (nfds == 0) { //TIMEMOUT
             event = EVENT_TIMEOUT;
         } else {
-            if (FD_ISSET(cltsock, &readfds)) {
-                ssize_t rcvn __attribute__((unused)) = recv(cltsock, &rcvbuf, sizeof(rcvbuf), 0);
+            if (FD_ISSET(sock, &readfds)) {
+                ssize_t rcvn __attribute__((unused)) = recv(sock, &rcvbuf, sizeof(rcvbuf), 0);
                 //handle the case of rcvn unexpected. 
 
                 //handle check
@@ -142,7 +146,7 @@ ssize_t sw_send(const void* data, size_t len) {
 }
 
 // receiver
-static int srvsock, peersock; 
+static int srvsock; 
 int sw_listen(uint32_t ipaddr, uint16_t port) {
     srvsock = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -156,7 +160,7 @@ int sw_listen(uint32_t ipaddr, uint16_t port) {
     assert ( listen(srvsock, 5) != -1 );
     printf("listening at %s : %d\n", inet_ntoa(srvaddr.sin_addr), port);
 
-    assert ( (peersock = accept(srvsock, NULL, NULL)) != -1 );
+    assert ( (sock = accept(srvsock, NULL, NULL)) != -1 );
 
     return 0;
 }
@@ -178,15 +182,19 @@ static inline void send_ack(char seq) {
     //send data
     ssize_t sndn = 0;
     while (len > 0) {
-        assert( (sndn = send(peersock, sndbuf + sndn, len, 0)) != -1 );
+        assert( (sndn = send(sock, sndbuf + sndn, len, 0)) != -1 );
         len -= sndn;
     }
 }
 
 static inline void recv_data0(int *state, void *buf, size_t *len) {
     for( ; ; ) {
-        ssize_t rcvn = recv(peersock, &rcvbuf, sizeof(rcvbuf), 0);
-        if (rcvn == 0) { *len = 0; return; }
+        ssize_t rcvn = recv(sock, &rcvbuf, sizeof(rcvbuf), 0);
+        if (rcvn == 0) {
+            *len = 0; 
+            close(sock);
+            return; 
+        }
 //       perror("0");
 
         //handle check
@@ -215,9 +223,13 @@ static inline void recv_data0(int *state, void *buf, size_t *len) {
 
 static inline void recv_data1(int *state, void *buf, size_t *len) {
     for( ; ; ) {
-        ssize_t rcvn = recv(peersock, &rcvbuf, sizeof(rcvbuf), 0);
+        ssize_t rcvn = recv(sock, &rcvbuf, sizeof(rcvbuf), 0);
 //       perror("1");
-        if (rcvn == 0) { *len = 0; return; }
+        if (rcvn == 0) { 
+            *len = 0; 
+            close(sock);
+            return; 
+        }
 
         //handle check
         uint16_t r = crc16(rcvbuf, rcvn, CHECK);
