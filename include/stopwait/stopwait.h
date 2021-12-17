@@ -14,6 +14,7 @@
 // common
 #define TIMEOUT 5
 #define CRC_SIZE 2
+#define ERROR_PRO 20 
 
 typedef union sw_head {
 	struct {
